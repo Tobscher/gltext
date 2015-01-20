@@ -6,18 +6,20 @@ package gltext
 
 import (
 	"fmt"
+	"image"
+
 	"github.com/go-gl/gl"
 	"github.com/go-gl/glh"
-	"image"
 )
 
 // A Font allows rendering of text to an OpenGL context.
 type Font struct {
-	config         *FontConfig // Character set for this font.
-	texture        gl.Texture  // Holds the glyph texture id.
-	listbase       uint        // Holds the first display list id.
+	Config         *FontConfig // Character set for this font.
+	Texture        gl.Texture  // Holds the glyph texture id.
 	maxGlyphWidth  int         // Largest glyph width.
 	maxGlyphHeight int         // Largest glyph height.
+	Width          int
+	Height         int
 }
 
 // loadFont loads the given font data. This does not deal with font scaling.
@@ -29,99 +31,54 @@ type Font struct {
 // every glyph. The config describes font metadata.
 func loadFont(img *image.RGBA, config *FontConfig) (f *Font, err error) {
 	f = new(Font)
-	f.config = config
+	f.Config = config
 
 	// Resize image to next power-of-two.
 	img = glh.Pow2Image(img).(*image.RGBA)
 	ib := img.Bounds()
 
+	f.Width = ib.Dx()
+	f.Height = ib.Dy()
+
 	// Create the texture itself. It will contain all glyphs.
 	// Individual glyph-quads display a subset of this texture.
-	f.texture = gl.GenTexture()
-	f.texture.Bind(gl.TEXTURE_2D)
+	f.Texture = gl.GenTexture()
+	f.Texture.Bind(gl.TEXTURE_2D)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, ib.Dx(), ib.Dy(), 0,
 		gl.RGBA, gl.UNSIGNED_BYTE, img.Pix)
 
-	// Create display lists for each glyph.
-	f.listbase = gl.GenLists(len(config.Glyphs))
+	// file, err := os.Create("font.png")
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
 
-	texWidth := float32(ib.Dx())
-	texHeight := float32(ib.Dy())
+	// err = png.Encode(file, img)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
 
-	for index, glyph := range config.Glyphs {
-		// Update max glyph bounds.
-		if glyph.Width > f.maxGlyphWidth {
-			f.maxGlyphWidth = glyph.Width
-		}
-
-		if glyph.Height > f.maxGlyphHeight {
-			f.maxGlyphHeight = glyph.Height
-		}
-
-		// Quad width/height
-		vw := float32(glyph.Width)
-		vh := float32(glyph.Height)
-
-		// Texture coordinate offsets.
-		tx1 := float32(glyph.X) / texWidth
-		ty1 := float32(glyph.Y) / texHeight
-		tx2 := (float32(glyph.X) + vw) / texWidth
-		ty2 := (float32(glyph.Y) + vh) / texHeight
-
-		// Advance width (or height if we render top-to-bottom)
-		adv := float32(glyph.Advance)
-
-		gl.NewList(f.listbase+uint(index), gl.COMPILE)
-		{
-			gl.Begin(gl.QUADS)
-			{
-				gl.TexCoord2f(tx1, ty2)
-				gl.Vertex2f(0, 0)
-				gl.TexCoord2f(tx2, ty2)
-				gl.Vertex2f(vw, 0)
-				gl.TexCoord2f(tx2, ty1)
-				gl.Vertex2f(vw, vh)
-				gl.TexCoord2f(tx1, ty1)
-				gl.Vertex2f(0, vh)
-			}
-			gl.End()
-
-			switch config.Dir {
-			case LeftToRight:
-				gl.Translatef(adv, 0, 0)
-			case RightToLeft:
-				gl.Translatef(-adv, 0, 0)
-			case TopToBottom:
-				gl.Translatef(0, -adv, 0)
-			}
-		}
-		gl.EndList()
-	}
-
-	err = glh.CheckGLError()
 	return
 }
 
 // Dir returns the font's rendering orientation.
-func (f *Font) Dir() Direction { return f.config.Dir }
+func (f *Font) Dir() Direction { return f.Config.Dir }
 
 // Low returns the font's lower rune bound.
-func (f *Font) Low() rune { return f.config.Low }
+func (f *Font) Low() rune { return f.Config.Low }
 
 // High returns the font's upper rune bound.
-func (f *Font) High() rune { return f.config.High }
+func (f *Font) High() rune { return f.Config.High }
 
 // Glyphs returns the font's glyph descriptors.
-func (f *Font) Glyphs() Charset { return f.config.Glyphs }
+func (f *Font) Glyphs() Charset { return f.Config.Glyphs }
 
 // Release releases font resources.
 // A font can no longer be used for rendering after this call completes.
 func (f *Font) Release() {
-	f.texture.Delete()
-	gl.DeleteLists(f.listbase, len(f.config.Glyphs))
-	f.config = nil
+	f.Texture.Delete()
+	f.Config = nil
 }
 
 // Metrics returns the pixel width and height for the given string.
@@ -136,7 +93,7 @@ func (f *Font) Metrics(text string) (int, int) {
 
 	gw, gh := f.GlyphBounds()
 
-	if f.config.Dir == TopToBottom {
+	if f.Config.Dir == TopToBottom {
 		return gw, f.advanceSize(text)
 	}
 
@@ -151,8 +108,8 @@ func (f *Font) Metrics(text string) (int, int) {
 // defined by Font.GlyphBounds().
 func (f *Font) advanceSize(line string) int {
 	gw, gh := f.GlyphBounds()
-	glyphs := f.config.Glyphs
-	low := f.config.Low
+	glyphs := f.Config.Glyphs
+	low := f.Config.Low
 	indices := []rune(line)
 
 	var size int
@@ -164,7 +121,7 @@ func (f *Font) advanceSize(line string) int {
 			continue
 		}
 
-		if f.config.Dir == TopToBottom {
+		if f.Config.Dir == TopToBottom {
 			size += gh
 		} else {
 			size += gw
@@ -190,7 +147,7 @@ func (f *Font) Printf(x, y float32, fs string, argv ...interface{}) error {
 
 	// Runes form display list indices.
 	// For this purpose, they need to be offset by -FontConfig.Low
-	low := f.config.Low
+	low := f.Config.Low
 	for i := range indices {
 		indices[i] -= low
 	}
@@ -215,8 +172,7 @@ func (f *Font) Printf(x, y float32, fs string, argv ...interface{}) error {
 
 		gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 		gl.TexEnvf(gl.TEXTURE_ENV, gl.TEXTURE_ENV_MODE, gl.MODULATE)
-		f.texture.Bind(gl.TEXTURE_2D)
-		gl.ListBase(f.listbase)
+		f.Texture.Bind(gl.TEXTURE_2D)
 
 		var mv [16]float32
 		gl.GetFloatv(gl.MODELVIEW_MATRIX, mv[:])
@@ -228,7 +184,7 @@ func (f *Font) Printf(x, y float32, fs string, argv ...interface{}) error {
 			mgw := float32(f.maxGlyphWidth)
 			mgh := float32(f.maxGlyphHeight)
 
-			switch f.config.Dir {
+			switch f.Config.Dir {
 			case LeftToRight, TopToBottom:
 				gl.Translatef(x, float32(vp[3])-y-mgh, 0)
 			case RightToLeft:
@@ -239,7 +195,7 @@ func (f *Font) Printf(x, y float32, fs string, argv ...interface{}) error {
 			gl.CallLists(len(indices), gl.UNSIGNED_INT, indices)
 		}
 		gl.PopMatrix()
-		f.texture.Unbind(gl.TEXTURE_2D)
+		f.Texture.Unbind(gl.TEXTURE_2D)
 	}
 	gl.PopAttrib()
 

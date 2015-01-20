@@ -8,6 +8,7 @@ package gltext
 // These indicate which area of a given image contains the
 // glyph data and how the glyph should be spaced in a rendered string.
 type Glyph struct {
+	Char   string
 	X      int `json:"x"`      // The x location of the glyph on a sprite sheet.
 	Y      int `json:"y"`      // The y location of the glyph on a sprite sheet.
 	Width  int `json:"width"`  // The width of the glyph on a sprite sheet.
@@ -47,4 +48,14 @@ func (c Charset) Scale(factor int) {
 		c[i].Height *= factor
 		c[i].Advance *= factor
 	}
+}
+
+func (c Charset) Find(char string) *Glyph {
+	for i := range c {
+		if c[i].Char == char {
+			return &c[i]
+		}
+	}
+
+	return nil
 }
